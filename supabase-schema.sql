@@ -2,182 +2,186 @@
 -- STEP 1: Create tables
 -- ============================================================
 
-create table if not exists development_phases (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  description text not null,
-  order_index integer not null unique,
-  icon text not null,
-  color text not null,
-  created_at timestamptz default now()
+CREATE TABLE IF NOT EXISTS development_phases (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  description text NOT NULL,
+  order_index integer NOT NULL UNIQUE,
+  icon text NOT NULL,
+  color text NOT NULL DEFAULT '#3B82F6',
+  created_at timestamptz DEFAULT now()
 );
 
-create table if not exists development_steps (
-  id uuid primary key default gen_random_uuid(),
-  phase_id uuid not null references development_phases(id) on delete cascade,
-  title text not null,
-  description text not null,
-  order_index integer not null,
-  details jsonb not null default '{"items": [], "tips": []}',
-  created_at timestamptz default now()
+CREATE TABLE IF NOT EXISTS development_steps (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  phase_id uuid NOT NULL REFERENCES development_phases(id) ON DELETE CASCADE,
+  title text NOT NULL,
+  description text NOT NULL,
+  order_index integer NOT NULL,
+  details jsonb DEFAULT '{}',
+  created_at timestamptz DEFAULT now()
 );
 
-create table if not exists step_progress (
-  id uuid primary key default gen_random_uuid(),
-  step_id uuid not null references development_steps(id) on delete cascade,
-  session_id text not null,
-  completed boolean not null default false,
+-- Add unique constraint if it doesn't exist
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'development_steps_phase_id_order_index_key'
+  ) THEN
+    ALTER TABLE development_steps ADD CONSTRAINT development_steps_phase_id_order_index_key UNIQUE (phase_id, order_index);
+  END IF;
+END$$;
+
+CREATE TABLE IF NOT EXISTS step_progress (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  step_id uuid NOT NULL REFERENCES development_steps(id) ON DELETE CASCADE,
+  session_id text NOT NULL,
+  completed boolean DEFAULT false,
   notes text,
   completed_at timestamptz,
-  created_at timestamptz default now(),
-  unique(step_id, session_id)
+  created_at timestamptz DEFAULT now()
 );
 
+-- Add session_id column if it doesn't exist (upgrading from old schema)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'step_progress' AND column_name = 'session_id'
+  ) THEN
+    ALTER TABLE step_progress ADD COLUMN session_id text NOT NULL DEFAULT 'legacy';
+  END IF;
+END$$;
+
+-- Add unique constraint if it doesn't exist
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'step_progress_step_id_session_id_key'
+  ) THEN
+    ALTER TABLE step_progress ADD CONSTRAINT step_progress_step_id_session_id_key UNIQUE (step_id, session_id);
+  END IF;
+END$$;
+
 -- Index for fast progress lookups by session
-create index if not exists idx_step_progress_session on step_progress(session_id);
+CREATE INDEX IF NOT EXISTS idx_step_progress_session ON step_progress(session_id);
 
 -- ============================================================
 -- STEP 2: Enable Row Level Security
 -- ============================================================
 
-alter table development_phases enable row level security;
-alter table development_steps enable row level security;
-alter table step_progress enable row level security;
+ALTER TABLE development_phases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE development_steps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE step_progress ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================
 -- STEP 3: RLS Policies
--- Phases and steps are public (read-only for everyone)
--- Progress is scoped per session_id (anyone can read/write their own)
 -- ============================================================
 
-create policy "Public read phases"
-  on development_phases for select
-  to anon
-  using (true);
+DROP POLICY IF EXISTS "anon_read_phases" ON development_phases;
+CREATE POLICY "anon_read_phases" ON development_phases FOR SELECT TO anon, authenticated USING (true);
 
-create policy "Public read steps"
-  on development_steps for select
-  to anon
-  using (true);
+DROP POLICY IF EXISTS "anon_read_steps" ON development_steps;
+CREATE POLICY "anon_read_steps" ON development_steps FOR SELECT TO anon, authenticated USING (true);
 
-create policy "Session read progress"
-  on step_progress for select
-  to anon
-  using (true);
+DROP POLICY IF EXISTS "anon_read_progress" ON step_progress;
+CREATE POLICY "anon_read_progress" ON step_progress FOR SELECT TO anon, authenticated USING (true);
 
-create policy "Session insert progress"
-  on step_progress for insert
-  to anon
-  with check (true);
+DROP POLICY IF EXISTS "anon_insert_progress" ON step_progress;
+CREATE POLICY "anon_insert_progress" ON step_progress FOR INSERT TO anon, authenticated WITH CHECK (true);
 
-create policy "Session update progress"
-  on step_progress for update
-  to anon
-  using (true);
+DROP POLICY IF EXISTS "anon_update_progress" ON step_progress;
+CREATE POLICY "anon_update_progress" ON step_progress FOR UPDATE TO anon, authenticated USING (true);
 
 -- ============================================================
--- STEP 4: Seed data — Phases
+-- STEP 4: Seed Phases
 -- ============================================================
 
-insert into development_phases (name, description, order_index, icon, color) values
-  ('Project Planning', 'Define requirements, architecture, and project scope before writing any code.', 1, 'ClipboardList', '#6366f1'),
-  ('UI/UX Design', 'Design wireframes, user flows, and the visual identity of the application.', 2, 'Palette', '#ec4899'),
-  ('Database Design', 'Model your data, define relationships, and set up your database schema.', 3, 'Database', '#f59e0b'),
-  ('Backend Development', 'Build APIs, business logic, authentication, and server-side functionality.', 4, 'Server', '#10b981'),
-  ('Frontend Development', 'Implement the UI, connect to APIs, and build the user-facing features.', 5, 'Monitor', '#3b82f6'),
-  ('Testing & QA', 'Write tests, fix bugs, and ensure the application works correctly end-to-end.', 6, 'CheckCircle', '#8b5cf6'),
-  ('Deployment', 'Deploy the application to production and configure hosting, domains, and CI/CD.', 7, 'Rocket', '#ef4444'),
-  ('Maintenance', 'Monitor performance, handle user feedback, and iterate on the product.', 8, 'RefreshCw', '#14b8a6');
+INSERT INTO development_phases (name, description, order_index, icon, color) VALUES
+('Planning & Requirements', 'Define project scope, gather requirements, and create a solid foundation for development', 1, 'ClipboardList', '#3B82F6'),
+('Design & Architecture', 'Create UI/UX designs and system architecture decisions', 2, 'Palette', '#8B5CF6'),
+('Database Design', 'Design and implement the database schema and relationships', 3, 'Database', '#10B981'),
+('Backend Development', 'Build APIs, server logic, and business rules', 4, 'Server', '#F59E0B'),
+('Frontend Development', 'Implement user interfaces and client-side functionality', 5, 'Monitor', '#EC4899'),
+('Testing & Quality', 'Ensure code quality through testing and debugging', 6, 'CheckCircle', '#EF4444'),
+('Deployment & DevOps', 'Deploy to production and set up monitoring', 7, 'Rocket', '#06B6D4'),
+('Maintenance & Iteration', 'Monitor, update, and improve the application post-launch', 8, 'RefreshCw', '#6366F1')
+ON CONFLICT (order_index) DO NOTHING;
 
 -- ============================================================
--- STEP 5: Seed data — Steps (linked to phases by order_index)
+-- STEP 5: Seed Steps
 -- ============================================================
 
--- Phase 1: Project Planning
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Define Project Goals', 'Clearly outline what the project should achieve and who it is for.', 1,
-  '{"items": ["Write a one-paragraph project summary", "List the top 3 goals of the project", "Identify the target audience", "Define success metrics"], "tips": ["Keep goals specific and measurable", "Involve stakeholders early to avoid scope creep"]}'::jsonb
-from development_phases where order_index = 1;
+-- Phase 1: Planning & Requirements
+INSERT INTO development_steps (phase_id, title, description, order_index, details) VALUES
+((SELECT id FROM development_phases WHERE order_index = 1), 'Define Project Vision', 'Clearly articulate the purpose and goals of the project', 1, '{"items": ["Write a vision statement", "Define success metrics", "Identify target users", "Document core features"], "tips": ["Keep it concise and focused", "Make it measurable", "Get stakeholder buy-in"]}'),
+((SELECT id FROM development_phases WHERE order_index = 1), 'Stakeholder Analysis', 'Identify all stakeholders and their requirements', 2, '{"items": ["List all stakeholders", "Document their needs", "Prioritize requirements", "Create communication plan"], "tips": ["Include end users in analysis", "Consider indirect stakeholders", "Document assumptions"]}'),
+((SELECT id FROM development_phases WHERE order_index = 1), 'Technical Requirements', 'Document all technical specifications and constraints', 3, '{"items": ["Define technology stack", "Document constraints", "List integrations needed", "Security requirements"], "tips": ["Consider scalability early", "Document browser/device support", "Plan for data privacy"]}'),
+((SELECT id FROM development_phases WHERE order_index = 1), 'Create Project Timeline', 'Establish realistic milestones and deadlines', 4, '{"items": ["Break down into sprints", "Set milestones", "Allocate resources", "Buffer for unknowns"], "tips": ["Pad estimates by 20%", "Build in review time", "Plan for iterations"]}'),
+((SELECT id FROM development_phases WHERE order_index = 1), 'Risk Assessment', 'Identify potential risks and mitigation strategies', 5, '{"items": ["List technical risks", "Identify dependencies", "Document mitigation plans", "Create contingency plans"], "tips": ["Think about third-party risks", "Consider team capacity", "Document assumptions"]}')
+ON CONFLICT (phase_id, order_index) DO NOTHING;
 
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Choose Tech Stack', 'Select the technologies, frameworks, and tools you will use.', 2,
-  '{"items": ["Choose frontend framework", "Choose backend language and framework", "Choose database", "Choose hosting provider", "Document all choices in a README"], "tips": ["Pick tools you or your team already know when possible", "Consider long-term maintenance, not just initial speed"]}'::jsonb
-from development_phases where order_index = 1;
-
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Set Up Project Repository', 'Initialize version control and establish branching strategy.', 3,
-  '{"items": ["Create GitHub/GitLab repository", "Add .gitignore", "Write initial README", "Set up branch protection rules", "Define commit message conventions"], "tips": ["Use conventional commits for a clean history", "Protect your main branch from direct pushes"]}'::jsonb
-from development_phases where order_index = 1;
-
--- Phase 2: UI/UX Design
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Create Wireframes', 'Sketch low-fidelity layouts for all key screens.', 1,
-  '{"items": ["List all screens/pages needed", "Sketch desktop layout", "Sketch mobile layout", "Get feedback from at least one person"], "tips": ["Use Figma or even pen and paper for wireframes", "Focus on layout and flow, not colors or fonts yet"]}'::jsonb
-from development_phases where order_index = 2;
-
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Define Design System', 'Establish colors, typography, spacing, and reusable components.', 2,
-  '{"items": ["Choose primary and accent colors", "Choose font family and sizes", "Define spacing scale", "Create button and input styles"], "tips": ["Stick to a maximum of 2 font families", "Use a tool like Coolors to build a consistent palette"]}'::jsonb
-from development_phases where order_index = 2;
+-- Phase 2: Design & Architecture
+INSERT INTO development_steps (phase_id, title, description, order_index, details) VALUES
+((SELECT id FROM development_phases WHERE order_index = 2), 'Create Wireframes', 'Design low-fidelity layouts for all major screens', 1, '{"items": ["Sketch main layouts", "Define navigation flow", "Review with stakeholders", "Iterate on feedback"], "tips": ["Start with pen and paper", "Focus on structure not visuals", "Get feedback early"]}'),
+((SELECT id FROM development_phases WHERE order_index = 2), 'Design System Setup', 'Establish visual guidelines and component library', 2, '{"items": ["Define color palette", "Select typography", "Create spacing system", "Build component library"], "tips": ["Use 8px grid system", "Limit font weights to 3", "Ensure accessibility contrast"]}'),
+((SELECT id FROM development_phases WHERE order_index = 2), 'High-Fidelity Mockups', 'Create detailed visual designs for all screens', 3, '{"items": ["Design all screens", "Define interactions", "Create responsive versions", "Review with users"], "tips": ["Test on actual devices", "Consider all states", "Document animations"]}'),
+((SELECT id FROM development_phases WHERE order_index = 2), 'System Architecture', 'Design the overall system structure and data flow', 4, '{"items": ["Create architecture diagram", "Define data flow", "Plan API structure", "Document decisions"], "tips": ["Keep it simple", "Plan for scale", "Consider caching strategy"]}'),
+((SELECT id FROM development_phases WHERE order_index = 2), 'Prototyping', 'Build interactive prototypes for user testing', 5, '{"items": ["Create clickable prototype", "Test with users", "Gather feedback", "Iterate on design"], "tips": ["Use real copy when possible", "Test with actual users", "Document all feedback"]}')
+ON CONFLICT (phase_id, order_index) DO NOTHING;
 
 -- Phase 3: Database Design
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Design Data Models', 'Define all entities, their fields, and relationships.', 1,
-  '{"items": ["List all entities (tables)", "Define fields and data types for each", "Map relationships (one-to-many, many-to-many)", "Draw an ER diagram"], "tips": ["Normalize your schema to avoid data duplication", "Think about what queries you will run most often"]}'::jsonb
-from development_phases where order_index = 3;
-
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Set Up Database', 'Create the database, run migrations, and configure access.', 2,
-  '{"items": ["Create database project (e.g. Supabase)", "Run schema SQL", "Enable Row Level Security", "Test connection from the app", "Add seed data for development"], "tips": ["Never store credentials in your code", "Use environment variables for all secrets"]}'::jsonb
-from development_phases where order_index = 3;
+INSERT INTO development_steps (phase_id, title, description, order_index, details) VALUES
+((SELECT id FROM development_phases WHERE order_index = 3), 'Entity Relationship Design', 'Identify all entities and their relationships', 1, '{"items": ["List all entities", "Define relationships", "Document cardinality", "Review with team"], "tips": ["Use ERD diagrams", "Consider future features", "Normalize appropriately"]}'),
+((SELECT id FROM development_phases WHERE order_index = 3), 'Schema Design', 'Create detailed database schema with all tables', 2, '{"items": ["Define all tables", "Set data types", "Add constraints", "Plan indexes"], "tips": ["Use consistent naming", "Add created_at/updated_at", "Plan for soft deletes"]}'),
+((SELECT id FROM development_phases WHERE order_index = 3), 'Migration Planning', 'Create migration strategy for schema changes', 3, '{"items": ["Write initial migrations", "Plan rollback strategy", "Test migrations", "Document process"], "tips": ["Version all migrations", "Test on staging first", "Backup before applying"]}'),
+((SELECT id FROM development_phases WHERE order_index = 3), 'Indexing Strategy', 'Optimize database performance with proper indexing', 4, '{"items": ["Identify query patterns", "Create indexes", "Test performance", "Monitor slow queries"], "tips": ["Index foreign keys", "Avoid over-indexing", "Use composite indexes wisely"]}'),
+((SELECT id FROM development_phases WHERE order_index = 3), 'Security & RLS', 'Implement Row Level Security policies', 5, '{"items": ["Define access patterns", "Write RLS policies", "Test all scenarios", "Document policies"], "tips": ["Test as different users", "Enable RLS on all tables", "Use auth.uid() for ownership"]}')
+ON CONFLICT (phase_id, order_index) DO NOTHING;
 
 -- Phase 4: Backend Development
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Build Core API Endpoints', 'Implement the main CRUD operations your frontend needs.', 1,
-  '{"items": ["Set up API project structure", "Implement GET endpoints", "Implement POST endpoints", "Implement PUT/PATCH endpoints", "Implement DELETE endpoints", "Test all endpoints with a tool like Postman"], "tips": ["Return consistent response shapes", "Always validate input on the server side"]}'::jsonb
-from development_phases where order_index = 4;
-
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Add Authentication', 'Implement user identity and access control.', 2,
-  '{"items": ["Choose auth strategy (JWT, sessions, OAuth)", "Implement sign up and login", "Protect private routes/endpoints", "Handle token refresh", "Test auth flows"], "tips": ["Never roll your own crypto", "Use a proven library like Supabase Auth, Auth0, or NextAuth"]}'::jsonb
-from development_phases where order_index = 4;
+INSERT INTO development_steps (phase_id, title, description, order_index, details) VALUES
+((SELECT id FROM development_phases WHERE order_index = 4), 'API Design', 'Define all API endpoints and data contracts', 1, '{"items": ["List all endpoints", "Define request/response", "Document authentication", "Create API docs"], "tips": ["Use RESTful conventions", "Version your APIs", "Document error responses"]}'),
+((SELECT id FROM development_phases WHERE order_index = 4), 'Authentication System', 'Implement user authentication and authorization', 2, '{"items": ["Set up auth provider", "Implement login/signup", "Add password reset", "Test all flows"], "tips": ["Use established providers", "Handle session expiry", "Implement rate limiting"]}'),
+((SELECT id FROM development_phases WHERE order_index = 4), 'Core Business Logic', 'Implement main application functionality', 3, '{"items": ["Build CRUD operations", "Implement business rules", "Add validation", "Handle errors gracefully"], "tips": ["Validate on server too", "Use transactions", "Log important events"]}'),
+((SELECT id FROM development_phases WHERE order_index = 4), 'API Endpoints', 'Build all REST or GraphQL endpoints', 4, '{"items": ["Implement all endpoints", "Add input validation", "Handle errors properly", "Add rate limiting"], "tips": ["Return proper HTTP codes", "Use pagination for lists", "Implement caching"]}'),
+((SELECT id FROM development_phases WHERE order_index = 4), 'Integration & Webhooks', 'Connect external services and handle webhooks', 5, '{"items": ["Integrate third-party APIs", "Handle webhooks", "Add retry logic", "Document integrations"], "tips": ["Use environment variables", "Implement idempotency", "Handle failures gracefully"]}')
+ON CONFLICT (phase_id, order_index) DO NOTHING;
 
 -- Phase 5: Frontend Development
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Scaffold Frontend Project', 'Set up the project structure, routing, and global state.', 1,
-  '{"items": ["Initialize project (Vite, CRA, Next.js, etc.)", "Set up routing", "Configure global styles / Tailwind", "Set up environment variables", "Connect to backend/API"], "tips": ["Use absolute imports to keep import paths clean", "Set up a linter and formatter from day one"]}'::jsonb
-from development_phases where order_index = 5;
+INSERT INTO development_steps (phase_id, title, description, order_index, details) VALUES
+((SELECT id FROM development_phases WHERE order_index = 5), 'Project Setup', 'Initialize frontend project with proper tooling', 1, '{"items": ["Set up build tool", "Configure linting", "Add TypeScript", "Set up testing"], "tips": ["Use Vite for speed", "Configure path aliases", "Set up environment files"]}'),
+((SELECT id FROM development_phases WHERE order_index = 5), 'Component Architecture', 'Build reusable component library', 2, '{"items": ["Create base components", "Build layout components", "Add form components", "Document usage"], "tips": ["Use composition", "Keep components small", "Use TypeScript props"]}'),
+((SELECT id FROM development_phases WHERE order_index = 5), 'State Management', 'Implement application state management', 3, '{"items": ["Choose state solution", "Set up stores", "Handle async state", "Persist where needed"], "tips": ["Start simple", "Keep state close to use", "Use URL for key state"]}'),
+((SELECT id FROM development_phases WHERE order_index = 5), 'API Integration', 'Connect frontend to backend APIs', 4, '{"items": ["Create API client", "Handle loading states", "Implement error handling", "Add caching"], "tips": ["Use React Query/SWR", "Handle offline state", "Show loading skeletons"]}'),
+((SELECT id FROM development_phases WHERE order_index = 5), 'Responsive Design', 'Ensure UI works on all screen sizes', 5, '{"items": ["Test all breakpoints", "Handle touch events", "Optimize images", "Test on real devices"], "tips": ["Mobile-first approach", "Use responsive units", "Test landscape mode"]}')
+ON CONFLICT (phase_id, order_index) DO NOTHING;
 
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Build UI Components', 'Implement all screens and interactive components.', 2,
-  '{"items": ["Build reusable base components (Button, Input, Modal)", "Implement all pages/screens", "Connect components to API data", "Handle loading and error states", "Ensure mobile responsiveness"], "tips": ["Build components in isolation before wiring up data", "Always handle the empty state, loading state, and error state"]}'::jsonb
-from development_phases where order_index = 5;
+-- Phase 6: Testing & Quality
+INSERT INTO development_steps (phase_id, title, description, order_index, details) VALUES
+((SELECT id FROM development_phases WHERE order_index = 6), 'Unit Testing', 'Write tests for individual functions and components', 1, '{"items": ["Set up test framework", "Write component tests", "Test utilities", "Achieve good coverage"], "tips": ["Test behavior not implementation", "Use testing library", "Mock external dependencies"]}'),
+((SELECT id FROM development_phases WHERE order_index = 6), 'Integration Testing', 'Test how components work together', 2, '{"items": ["Test user flows", "Test API integration", "Handle edge cases", "Test error states"], "tips": ["Focus on critical paths", "Test happy and sad paths", "Use realistic data"]}'),
+((SELECT id FROM development_phases WHERE order_index = 6), 'End-to-End Testing', 'Test complete user journeys', 3, '{"items": ["Set up E2E framework", "Test critical flows", "Handle async behavior", "Run in CI"], "tips": ["Use Playwright/Cypress", "Keep tests stable", "Reduce flaky tests"]}'),
+((SELECT id FROM development_phases WHERE order_index = 6), 'Performance Optimization', 'Optimize app performance and load times', 4, '{"items": ["Audit bundle size", "Lazy load components", "Optimize images", "Monitor metrics"], "tips": ["Use Lighthouse", "Code split wisely", "Use modern formats"]}'),
+((SELECT id FROM development_phases WHERE order_index = 6), 'Accessibility Audit', 'Ensure app is accessible to all users', 5, '{"items": ["Run accessibility audit", "Fix keyboard navigation", "Add ARIA labels", "Test with screen reader"], "tips": ["Follow WCAG 2.1 AA", "Use semantic HTML", "Test with real assistive tech"]}')
+ON CONFLICT (phase_id, order_index) DO NOTHING;
 
--- Phase 6: Testing & QA
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Write Tests', 'Cover critical paths with automated tests.', 1,
-  '{"items": ["Write unit tests for utility functions", "Write integration tests for API endpoints", "Write at least one end-to-end test for the main user flow", "Aim for >70% coverage on critical code"], "tips": ["Test behavior, not implementation details", "A few high-value tests beat many trivial ones"]}'::jsonb
-from development_phases where order_index = 6;
+-- Phase 7: Deployment & DevOps
+INSERT INTO development_steps (phase_id, title, description, order_index, details) VALUES
+((SELECT id FROM development_phases WHERE order_index = 7), 'CI/CD Pipeline', 'Set up automated build and deployment pipeline', 1, '{"items": ["Configure CI", "Set up automated tests", "Add deployment stage", "Environment management"], "tips": ["Fail fast", "Cache dependencies", "Use secrets management"]}'),
+((SELECT id FROM development_phases WHERE order_index = 7), 'Environment Configuration', 'Configure all environments properly', 2, '{"items": ["Set up staging", "Configure production", "Manage secrets", "Document setup"], "tips": ["Use env variables", "Keep envs in sync", "Never commit secrets"]}'),
+((SELECT id FROM development_phases WHERE order_index = 7), 'Production Deployment', 'Deploy application to production servers', 3, '{"items": ["Run migrations", "Deploy build", "Verify deployment", "Set up rollback"], "tips": ["Deploy during low traffic", "Have rollback plan", "Monitor after deploy"]}'),
+((SELECT id FROM development_phases WHERE order_index = 7), 'Monitoring Setup', 'Implement logging and monitoring', 4, '{"items": ["Set up error tracking", "Configure logs", "Add monitoring", "Create alerts"], "tips": ["Log meaningful events", "Set up dashboards", "Configure alert thresholds"]}'),
+((SELECT id FROM development_phases WHERE order_index = 7), 'Performance Monitoring', 'Track application performance in production', 5, '{"items": ["Set up APM", "Track key metrics", "Monitor errors", "Set up alerts"], "tips": ["Monitor user experience", "Track business metrics", "Set up on-call rotation"]}')
+ON CONFLICT (phase_id, order_index) DO NOTHING;
 
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Manual QA & Bug Fixes', 'Manually test the full application and fix all critical bugs.', 2,
-  '{"items": ["Test all user flows on desktop", "Test all user flows on mobile", "Test with slow network (Chrome DevTools throttling)", "Fix all critical and high-severity bugs", "Get at least one other person to test it"], "tips": ["Use Chrome DevTools device emulation for quick mobile testing", "Check browser console for errors before shipping"]}'::jsonb
-from development_phases where order_index = 6;
-
--- Phase 7: Deployment
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Configure Production Environment', 'Set up environment variables and production settings.', 1,
-  -- FIXED: Changed 'platform'\'s' to 'platform''s' below
-  '{"items": ["Set all environment variables in hosting platform", "Ensure no development-only code runs in production", "Configure CORS for production domain", "Set up custom domain (optional)"], "tips": ["Double-check that .env is in .gitignore", "Use the hosting platform''s secret manager, not hardcoded values"]}'::jsonb
-from development_phases where order_index = 7;
-
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Deploy to Production', 'Ship the application and verify it works live.', 2,
-  '{"items": ["Push code to main branch", "Verify build passes in CI/CD", "Open the live URL and test all critical flows", "Check for console errors on the live site", "Share the URL!"], "tips": ["Always test the live deployment, not just the local build", "Set up uptime monitoring (e.g. UptimeRobot — free tier)"]}'::jsonb
-from development_phases where order_index = 7;
-
--- Phase 8: Maintenance
-insert into development_steps (phase_id, title, description, order_index, details)
-select id, 'Monitor & Iterate', 'Keep the application healthy and improve it over time.', 1,
-  '{"items": ["Set up error monitoring (e.g. Sentry)", "Review user feedback regularly", "Keep dependencies up to date", "Plan and ship improvements in small iterations"], "tips": ["Small frequent updates are safer than large infrequent ones", "Listen to real users — they will find bugs you never imagined"]}'::jsonb
-from development_phases where order_index = 8;
+-- Phase 8: Maintenance & Iteration
+INSERT INTO development_steps (phase_id, title, description, order_index, details) VALUES
+((SELECT id FROM development_phases WHERE order_index = 8), 'User Feedback Collection', 'Gather and analyze user feedback', 1, '{"items": ["Set up feedback channel", "Analyze support tickets", "Track feature requests", "Prioritize improvements"], "tips": ["Make it easy to report", "Acknowledge all feedback", "Close the loop"]}'),
+((SELECT id FROM development_phases WHERE order_index = 8), 'Bug Fixing', 'Address issues reported by users', 2, '{"items": ["Triage bugs", "Fix critical issues", "Update tests", "Communicate fixes"], "tips": ["Prioritize by impact", "Add regression tests", "Document workarounds"]}'),
+((SELECT id FROM development_phases WHERE order_index = 8), 'Feature Iteration', 'Improve and expand features based on data', 3, '{"items": ["Analyze usage data", "Identify improvements", "Implement changes", "Measure impact"], "tips": ["Use data to decide", "Run A/B tests", "Track feature adoption"]}'),
+((SELECT id FROM development_phases WHERE order_index = 8), 'Security Updates', 'Keep dependencies secure and updated', 4, '{"items": ["Monitor vulnerabilities", "Update dependencies", "Test updates", "Document changes"], "tips": ["Automate scanning", "Update regularly", "Have testing coverage"]}'),
+((SELECT id FROM development_phases WHERE order_index = 8), 'Documentation', 'Maintain comprehensive documentation', 5, '{"items": ["Update API docs", "Document new features", "Keep README updated", "Add inline comments"], "tips": ["Document as you go", "Keep it simple", "Include examples"]}')
+ON CONFLICT (phase_id, order_index) DO NOTHING;
