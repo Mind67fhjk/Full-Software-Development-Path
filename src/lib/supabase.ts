@@ -9,15 +9,29 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Anonymous session: each visitor gets a unique ID stored in localStorage
+// Anonymous session: persisted in both localStorage and a 1-year cookie
+// so progress survives localStorage clears
 const SESSION_KEY = 'elaja_session_id';
 
+function getCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function setCookie(name: string, value: string) {
+  const maxAge = 60 * 60 * 24 * 365; // 1 year in seconds
+  document.cookie = `${name}=${encodeURIComponent(value)}; max-age=${maxAge}; path=/; SameSite=Lax`;
+}
+
 export function getSessionId(): string {
-  let sessionId = localStorage.getItem(SESSION_KEY);
+  // Try localStorage first, then cookie
+  let sessionId = localStorage.getItem(SESSION_KEY) ?? getCookie(SESSION_KEY);
   if (!sessionId) {
     sessionId = crypto.randomUUID();
-    localStorage.setItem(SESSION_KEY, sessionId);
   }
+  // Always keep both in sync
+  localStorage.setItem(SESSION_KEY, sessionId);
+  setCookie(SESSION_KEY, sessionId);
   return sessionId;
 }
 
