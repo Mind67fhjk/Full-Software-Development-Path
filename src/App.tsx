@@ -225,13 +225,6 @@ function App() {
         {/* Phases */}
         <div className="space-y-4">
           {phases.map((phase, index) => {
-            const previousPhase = phases[index - 1];
-            const isPreviousComplete =
-              index === 0 ||
-              (previousPhase &&
-                previousPhase.steps.length > 0 &&
-                previousPhase.steps.every((s) => s.progress?.completed));
-
             return (
               <PhaseCard
                 key={phase.id}
@@ -239,7 +232,6 @@ function App() {
                 isExpanded={expandedPhase === phase.id}
                 onToggle={() => handleTogglePhase(phase.id)}
                 onStepClick={handleStepClick}
-                isPreviousComplete={isPreviousComplete}
               />
             );
           })}

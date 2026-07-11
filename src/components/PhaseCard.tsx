@@ -9,7 +9,6 @@ import {
   RefreshCw,
   ChevronRight,
   Check,
-  Clock,
 } from "lucide-react";
 import type { PhaseWithSteps } from "../lib/supabase";
 
@@ -29,7 +28,6 @@ type PhaseCardProps = {
   isExpanded: boolean;
   onToggle: () => void;
   onStepClick: (stepId: string) => void;
-  isPreviousComplete: boolean;
 };
 
 export function PhaseCard({
@@ -37,7 +35,6 @@ export function PhaseCard({
   isExpanded,
   onToggle,
   onStepClick,
-  isPreviousComplete,
 }: PhaseCardProps) {
   const Icon = iconMap[phase.icon] || ClipboardList;
   const completedSteps = phase.steps.filter(
@@ -47,16 +44,13 @@ export function PhaseCard({
   const progressPercent =
     totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0;
   const isComplete = completedSteps === totalSteps && totalSteps > 0;
-  const isActive = isPreviousComplete || phase.order_index === 1;
 
   return (
     <div
       className={`relative rounded-2xl border-2 transition-all duration-500 ${
         isComplete
           ? "border-emerald-500/50 bg-gradient-to-br from-emerald-500/10 to-emerald-500/5"
-          : isActive
-            ? "border-slate-300 bg-white shadow-lg hover:shadow-xl"
-            : "border-slate-200 bg-slate-50/50 opacity-70"
+          : "border-slate-300 bg-white shadow-lg hover:shadow-xl"
       }`}
     >
       {/* Progress bar behind the card */}
@@ -78,17 +72,11 @@ export function PhaseCard({
           {/* Phase number and icon */}
           <div
             className={`relative flex-shrink-0 w-12 h-12 sm:w-16 sm:h-16 rounded-xl flex items-center justify-center transition-all duration-500 ${
-              isComplete
-                ? "bg-emerald-500 text-white"
-                : isActive
-                  ? "bg-gradient-to-br text-white shadow-lg"
-                  : "bg-slate-200 text-slate-400"
+              isComplete ? "bg-emerald-500 text-white" : "bg-gradient-to-br text-white shadow-lg"
             }`}
             style={
-              !isComplete && isActive
-                ? {
-                    backgroundImage: `linear-gradient(135deg, ${phase.color}, ${phase.color}dd)`,
-                  }
+              !isComplete
+                ? { backgroundImage: `linear-gradient(135deg, ${phase.color}, ${phase.color}dd)` }
                 : undefined
             }
           >
@@ -96,11 +84,6 @@ export function PhaseCard({
             {isComplete && (
               <div className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center ring-2 ring-white">
                 <Check className="w-3 h-3 text-white" />
-              </div>
-            )}
-            {!isActive && (
-              <div className="absolute inset-0 bg-slate-300/50 rounded-xl flex items-center justify-center">
-                <Clock className="w-5 h-5 text-slate-500" />
               </div>
             )}
           </div>
@@ -125,18 +108,10 @@ export function PhaseCard({
                 </span>
               )}
             </div>
-            <h3
-              className={`text-base sm:text-xl font-bold mb-2 ${
-                isActive ? "text-slate-800" : "text-slate-500"
-              }`}
-            >
+            <h3 className="text-base sm:text-xl font-bold mb-2 text-slate-800">
               {phase.name}
             </h3>
-            <p
-              className={`text-sm ${
-                isActive ? "text-slate-600" : "text-slate-400"
-              }`}
-            >
+            <p className="text-sm text-slate-600">
               {phase.description}
             </p>
 
@@ -187,20 +162,13 @@ export function PhaseCard({
                 className={`w-full p-4 rounded-xl text-left transition-all duration-300 flex items-center gap-4 ${
                   isStepComplete
                     ? "bg-emerald-50 border border-emerald-200 hover:border-emerald-400"
-                    : isActive
-                      ? "bg-white border border-slate-200 hover:border-slate-400 hover:shadow-md"
-                      : "bg-slate-50 border border-slate-100 cursor-not-allowed"
+                    : "bg-white border border-slate-200 hover:border-slate-400 hover:shadow-md"
                 }`}
-                disabled={!isActive}
               >
                 {/* Step number */}
                 <div
                   className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-semibold ${
-                    isStepComplete
-                      ? "bg-emerald-500 text-white"
-                      : isActive
-                        ? "bg-slate-100 text-slate-600"
-                        : "bg-slate-100 text-slate-400"
+                    isStepComplete ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600"
                   }`}
                 >
                   {index + 1}
@@ -210,20 +178,12 @@ export function PhaseCard({
                 <div className="flex-1 min-w-0">
                   <h4
                     className={`font-semibold text-sm sm:text-base break-words ${
-                      isStepComplete
-                        ? "text-emerald-700"
-                        : isActive
-                          ? "text-slate-800"
-                          : "text-slate-400"
+                      isStepComplete ? "text-emerald-700" : "text-slate-800"
                     }`}
                   >
                     {step.title}
                   </h4>
-                  <p
-                    className={`text-sm truncate ${
-                      isActive ? "text-slate-500" : "text-slate-400"
-                    }`}
-                  >
+                  <p className="text-sm truncate text-slate-500">
                     {step.description}
                   </p>
                 </div>
